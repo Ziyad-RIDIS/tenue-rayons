@@ -314,129 +314,94 @@ SCREENS.loading = () => h('div',{class:'center-screen'}, [
   ])
 ]);
 
+const MANAGERS = [
+  {name:'Said', store:'nord'},
+  {name:'Omar', store:'nord'},
+  {name:'Didier', store:'sud'},
+];
+const DIRECTION_PEOPLE = ['Noor', 'Salim', 'Ziyad'];
+const DIRECTION_PIN = '2142';
+
 SCREENS.login = () => {
   const wrap = h('div',{class:'screen'});
-  wrap.appendChild(h('h1',{class:'hero'},['Connexion']));
-  wrap.appendChild(h('p',{class:'sub'},['Entre ton identifiant pour accéder au suivi des rayons.']));
+  wrap.appendChild(h('h1',{class:'hero'},['Tenue Rayons']));
+  wrap.appendChild(h('p',{class:'sub'},['Choisis ton magasin pour commencer.']));
 
-  const nameField = h('div',{class:'field'},[
-    h('label',{},['Identifiant (prénom)']),
-    h('input',{type:'text', placeholder:'Ex: Karim', value: state.loginNameInput||'', oninput:(e)=>{ state.loginNameInput = e.target.value; }})
-  ]);
-  wrap.appendChild(nameField);
+  STORES.forEach(s=>{
+    wrap.appendChild(h('button',{class:'btn btn-primary', style:'margin-bottom:2px;', onclick:()=>{ state.pickedStore = s.id; state.screen='manager-pick'; render(); }},[s.label]));
+  });
 
-  wrap.appendChild(h('button',{class:'btn btn-primary', onclick:()=>{
-    const typed = (state.loginNameInput||'').trim();
-    if(!typed){ showToast('Entre ton identifiant'); return; }
-    const match = state.users.find(u => u.name.trim().toLowerCase() === typed.toLowerCase());
-    if(match){
-      state.loginTarget = match;
-      state.pinBuffer='';
-      state.screen='pin-check';
-    } else {
-      state.registerDraft = {name: typed, store:'nord', role:'manager', pin:''};
-      showToast('Profil introuvable \u2014 crée-le');
-      state.screen='register';
-    }
-    render();
-  }},['Continuer']));
-
-  wrap.appendChild(h('button',{class:'btn btn-ghost', onclick:()=>{ state.registerDraft={name:'',store:'nord',role:'manager',pin:''}; state.screen='register'; render(); }},['+ Créer un profil']));
+  wrap.appendChild(h('div',{style:'flex:1;'}));
+  wrap.appendChild(h('button',{class:'btn btn-ghost', onclick:()=>{ state.pinBuffer=''; state.screen='direction-pin'; render(); }},['Direction']));
   return wrap;
 };
 
-SCREENS.register = () => {
+SCREENS['manager-pick'] = () => {
   const wrap = h('div',{class:'screen'});
   wrap.appendChild(h('button',{class:'back', onclick:()=>{ state.screen='login'; render(); }},['\u2190']));
-  wrap.appendChild(h('h1',{class:'hero'},['Nouveau profil']));
+  const storeLbl = STORES.find(s=>s.id===state.pickedStore)?.label;
+  wrap.appendChild(h('h1',{class:'hero'},[storeLbl]));
+  wrap.appendChild(h('p',{class:'sub'},['Qui es-tu\u00A0?']));
 
-  const nameField = h('div',{class:'field'},[
-    h('label',{},['Prénom / nom']),
-    h('input',{type:'text', placeholder:'Ex: Karim', value:state.registerDraft.name, oninput:(e)=>{ state.registerDraft.name=e.target.value; }})
-  ]);
-
-  const storeField = h('div',{class:'field'},[
-    h('label',{},['Magasin']),
-    h('select',{onchange:(e)=>{ state.registerDraft.store=e.target.value; }}, STORES.map(s=>h('option',{value:s.id, selected:s.id===state.registerDraft.store}, [s.label])))
-  ]);
-
-  const roleField = h('div',{class:'field'},[
-    h('label',{},['Rôle']),
-    h('select',{onchange:(e)=>{ state.registerDraft.role=e.target.value; }}, [
-      h('option',{value:'manager', selected:state.registerDraft.role==='manager'},['Responsable de magasin']),
-      h('option',{value:'direction', selected:state.registerDraft.role==='direction'},['Direction']),
-    ])
-  ]);
-
-  wrap.appendChild(nameField);
-  wrap.appendChild(storeField);
-  wrap.appendChild(roleField);
-  wrap.appendChild(h('p',{class:'sub'},['Tu vas ensuite définir un code à 4 chiffres pour retrouver ton profil rapidement.']));
-
-  wrap.appendChild(h('button',{class:'btn btn-primary', onclick: async ()=>{
-    if(!state.registerDraft.name.trim()){ showToast('Entre un prénom'); return; }
-    state.screen='register-pin'; state.pinBuffer=''; render();
-  }},['Continuer']));
-
-  return wrap;
-};
-
-SCREENS['register-pin'] = () => {
-  const wrap = h('div',{class:'screen'});
-  wrap.appendChild(h('button',{class:'back', onclick:()=>{ state.screen='register'; render(); }},['\u2190']));
-  wrap.appendChild(h('h1',{class:'hero'},['Choisis ton code']));
-  wrap.appendChild(h('p',{class:'sub'},['4 chiffres, à retenir pour te reconnecter.']));
-  wrap.appendChild(pinDots());
-  wrap.appendChild(keypad(async (digit)=>{
-    if(digit==='wipe'){ state.pinBuffer = state.pinBuffer.slice(0,-1); render(); return; }
-    if(state.pinBuffer.length>=4) return;
-    state.pinBuffer += digit;
-    if(state.pinBuffer.length===4){
-      const newUser = {
-        id: 'u_'+Date.now(),
-        name: state.registerDraft.name.trim(),
-        store: state.registerDraft.store,
-        role: state.registerDraft.role,
-        pin: state.pinBuffer,
-      };
-      state.users.push(newUser);
-      await saveUsers();
-      state.currentUser = newUser;
-      try{ localStorage.setItem('tenueRayonsUserId', newUser.id); }catch(e){}
-      state.pinBuffer='';
+  const list = h('div',{class:'userlist'});
+  MANAGERS.filter(m=>m.store===state.pickedStore).forEach(m=>{
+    list.appendChild(h('div',{class:'user-row', onclick: async ()=>{
+      state.currentUser = {name:m.name, store:m.store, role:'manager'};
+      try{ localStorage.setItem('tenueRayonsProfile', JSON.stringify(state.currentUser)); }catch(e){}
+      state.screen='loading'; render();
       await enterApp();
-      return;
-    }
-    render();
-  }));
+    }},[
+      h('div',{class:'name'},[m.name]),
+      h('span',{class:'chev'},['\u203A']),
+    ]));
+  });
+  wrap.appendChild(list);
   return wrap;
 };
 
-SCREENS['pin-check'] = () => {
+SCREENS['direction-pin'] = () => {
   const wrap = h('div',{class:'screen'});
   wrap.appendChild(h('button',{class:'back', onclick:()=>{ state.screen='login'; render(); }},['\u2190']));
-  wrap.appendChild(h('h1',{class:'hero'},[state.loginTarget.name]));
-  wrap.appendChild(h('p',{class:'sub'},['Entre ton code à 4 chiffres.']));
+  wrap.appendChild(h('h1',{class:'hero'},['Direction']));
+  wrap.appendChild(h('p',{class:'sub'},['Entre le code \u00e0 4 chiffres.']));
   wrap.appendChild(pinDots());
-  wrap.appendChild(keypad(async (digit)=>{
+  wrap.appendChild(keypad((digit)=>{
     if(digit==='wipe'){ state.pinBuffer = state.pinBuffer.slice(0,-1); render(); return; }
     if(state.pinBuffer.length>=4) return;
     state.pinBuffer += digit;
     if(state.pinBuffer.length===4){
-      if(state.pinBuffer === state.loginTarget.pin){
-        state.currentUser = state.loginTarget;
-        try{ localStorage.setItem('tenueRayonsUserId', state.loginTarget.id); }catch(e){}
+      if(state.pinBuffer === DIRECTION_PIN){
         state.pinBuffer='';
-        await enterApp();
+        state.screen='direction-pick';
       } else {
         showToast('Code incorrect');
         state.pinBuffer='';
-        render();
       }
-      return;
     }
     render();
   }));
+  return wrap;
+};
+
+SCREENS['direction-pick'] = () => {
+  const wrap = h('div',{class:'screen'});
+  wrap.appendChild(h('button',{class:'back', onclick:()=>{ state.screen='login'; render(); }},['\u2190']));
+  wrap.appendChild(h('h1',{class:'hero'},['Direction']));
+  wrap.appendChild(h('p',{class:'sub'},['Qui es-tu\u00A0?']));
+
+  const list = h('div',{class:'userlist'});
+  DIRECTION_PEOPLE.forEach(name=>{
+    list.appendChild(h('div',{class:'user-row', onclick: async ()=>{
+      state.currentUser = {name, store:'nord', role:'direction'};
+      try{ localStorage.setItem('tenueRayonsProfile', JSON.stringify(state.currentUser)); }catch(e){}
+      state.screen='loading'; render();
+      await enterApp();
+    }},[
+      h('div',{class:'name'},[name]),
+      h('span',{class:'chev'},['\u203A']),
+    ]));
+  });
+  wrap.appendChild(list);
   return wrap;
 };
 
@@ -460,7 +425,7 @@ function keypad(onPress){
 
 async function enterApp(){
   if(state.currentUser.role==='direction'){
-    state.reportStore = state.currentUser.store;
+    state.reportStore = 'nord';
     state.reportDate = todayStr();
     state.reportEntries = await loadEntriesFor(state.reportStore, state.reportDate);
     state.screen = 'report';
@@ -489,12 +454,13 @@ function stopReportPolling(){
 async function loadWeekStatus(){
   state.weekStatus = {};
   const now = new Date();
+  const days = [];
   for(let i=6;i>=0;i--){
     const d = new Date(now); d.setDate(now.getDate()-i);
-    const ds = todayStr(d);
-    const entries = await loadEntriesFor(state.currentUser.store, ds);
-    state.weekStatus[ds] = Object.keys(entries).length>0;
+    days.push(todayStr(d));
   }
+  const results = await Promise.all(days.map(ds => loadEntriesFor(state.currentUser.store, ds)));
+  days.forEach((ds, idx) => { state.weekStatus[ds] = Object.keys(results[idx]).length>0; });
 }
 
 SCREENS.home = () => {
@@ -556,9 +522,9 @@ function topbar(showLogout){
   const store = STORES.find(s=>s.id===state.currentUser.store);
   return h('div',{class:'topbar'},[
     h('div',{class:'brand'},['TENUE RAYONS']),
-    h('div',{class:'who', onclick: showLogout ? ()=>{ stopReportPolling(); state.editDraft = JSON.parse(JSON.stringify(state.currentUser)); state.screen='account'; render(); } : null},[
-      h('div',{},[store?store.label:'']),
-      h('div',{style:'color:var(--brand);'},[showLogout ? state.currentUser.name+' \u2699' : ''])
+    h('div',{class:'who', onclick: showLogout ? ()=>{ stopReportPolling(); try{ localStorage.removeItem('tenueRayonsProfile'); }catch(e){} state.currentUser=null; state.screen='login'; render(); } : null},[
+      h('div',{},[state.currentUser.role==='direction' ? 'Direction' : (store?store.label:'')]),
+      h('div',{style:'color:var(--brand);'},[showLogout ? state.currentUser.name+' \u00B7 changer' : ''])
     ])
   ]);
 }
@@ -695,64 +661,13 @@ SCREENS.report = () => {
   return wrap;
 };
 
-SCREENS.account = () => {
-  const wrap = h('div',{class:'screen'});
-  wrap.appendChild(h('button',{class:'back', onclick:()=>{ state.screen = state.currentUser.role==='direction' ? 'report' : 'home'; render(); }},['\u2190']));
-  wrap.appendChild(h('h1',{class:'hero'},['Mon compte']));
-
-  wrap.appendChild(h('div',{class:'field'},[
-    h('label',{},['Pr\u00E9nom / nom']),
-    h('input',{type:'text', value:state.editDraft.name, oninput:(e)=>{ state.editDraft.name=e.target.value; }})
-  ]));
-  wrap.appendChild(h('div',{class:'field'},[
-    h('label',{},['Magasin']),
-    h('select',{onchange:(e)=>{ state.editDraft.store=e.target.value; }}, STORES.map(s=>h('option',{value:s.id, selected:s.id===state.editDraft.store}, [s.label])))
-  ]));
-  wrap.appendChild(h('div',{class:'field'},[
-    h('label',{},['R\u00F4le']),
-    h('select',{onchange:(e)=>{ state.editDraft.role=e.target.value; }}, [
-      h('option',{value:'manager', selected:state.editDraft.role==='manager'},['Responsable de magasin']),
-      h('option',{value:'direction', selected:state.editDraft.role==='direction'},['Direction']),
-    ])
-  ]));
-
-  wrap.appendChild(h('button',{class:'btn btn-primary', onclick: async ()=>{
-    const idx = state.users.findIndex(u=>u.id===state.editDraft.id);
-    if(idx>-1){ state.users[idx] = state.editDraft; await saveUsers(); }
-    const roleChanged = state.currentUser.role !== state.editDraft.role;
-    state.currentUser = state.editDraft;
-    showToast('Profil mis \u00E0 jour');
-    if(roleChanged){ await enterApp(); } else {
-      state.screen = state.currentUser.role==='direction' ? 'report' : 'home';
-      if(state.currentUser.role==='direction') startReportPolling();
-      render();
-    }
-  }},['Enregistrer']));
-
-  wrap.appendChild(h('button',{class:'btn btn-ghost', onclick:()=>{ stopReportPolling(); try{ localStorage.removeItem('tenueRayonsUserId'); }catch(e){} state.currentUser=null; state.screen='login'; render(); }},['Se d\u00E9connecter']));
-
-  wrap.appendChild(h('button',{class:'btn btn-danger', onclick: async ()=>{
-    state.users = state.users.filter(u=>u.id!==state.editDraft.id);
-    await saveUsers();
-    try{ localStorage.removeItem('tenueRayonsUserId'); }catch(e){}
-    state.currentUser = null;
-    showToast('Profil supprim\u00E9');
-    state.screen='login';
-    render();
-  }},['Supprimer mon profil']));
-
-  return wrap;
-};
-
 // ---------- INIT ----------
 (async function init(){
   render();
-  await loadUsers();
-  let savedId = null;
-  try{ savedId = localStorage.getItem('tenueRayonsUserId'); }catch(e){}
-  const savedUser = savedId ? state.users.find(u => u.id === savedId) : null;
-  if(savedUser){
-    state.currentUser = savedUser;
+  let savedProfile = null;
+  try{ const raw = localStorage.getItem('tenueRayonsProfile'); savedProfile = raw ? JSON.parse(raw) : null; }catch(e){}
+  if(savedProfile && savedProfile.name && savedProfile.role){
+    state.currentUser = savedProfile;
     await enterApp();
   } else {
     state.screen = 'login';
