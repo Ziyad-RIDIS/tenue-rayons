@@ -402,6 +402,7 @@ SCREENS['register-pin'] = () => {
       state.users.push(newUser);
       await saveUsers();
       state.currentUser = newUser;
+      try{ localStorage.setItem('tenueRayonsUserId', newUser.id); }catch(e){}
       state.pinBuffer='';
       await enterApp();
       return;
@@ -424,6 +425,7 @@ SCREENS['pin-check'] = () => {
     if(state.pinBuffer.length===4){
       if(state.pinBuffer === state.loginTarget.pin){
         state.currentUser = state.loginTarget;
+        try{ localStorage.setItem('tenueRayonsUserId', state.loginTarget.id); }catch(e){}
         state.pinBuffer='';
         await enterApp();
       } else {
@@ -727,11 +729,12 @@ SCREENS.account = () => {
     }
   }},['Enregistrer']));
 
-  wrap.appendChild(h('button',{class:'btn btn-ghost', onclick:()=>{ stopReportPolling(); state.currentUser=null; state.screen='login'; render(); }},['Se d\u00E9connecter']));
+  wrap.appendChild(h('button',{class:'btn btn-ghost', onclick:()=>{ stopReportPolling(); try{ localStorage.removeItem('tenueRayonsUserId'); }catch(e){} state.currentUser=null; state.screen='login'; render(); }},['Se d\u00E9connecter']));
 
   wrap.appendChild(h('button',{class:'btn btn-danger', onclick: async ()=>{
     state.users = state.users.filter(u=>u.id!==state.editDraft.id);
     await saveUsers();
+    try{ localStorage.removeItem('tenueRayonsUserId'); }catch(e){}
     state.currentUser = null;
     showToast('Profil supprim\u00E9');
     state.screen='login';
@@ -745,8 +748,16 @@ SCREENS.account = () => {
 (async function init(){
   render();
   await loadUsers();
-  state.screen = 'login';
-  render();
+  let savedId = null;
+  try{ savedId = localStorage.getItem('tenueRayonsUserId'); }catch(e){}
+  const savedUser = savedId ? state.users.find(u => u.id === savedId) : null;
+  if(savedUser){
+    state.currentUser = savedUser;
+    await enterApp();
+  } else {
+    state.screen = 'login';
+    render();
+  }
 })();
 
 </script>
