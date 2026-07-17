@@ -484,16 +484,17 @@ SCREENS.home = () => {
   }
   wrap.appendChild(strip);
 
-  // mode toggle
-  const toggle = h('div',{class:'mode-toggle'},[
-    h('button',{class: state.mode==='quotidien'?'active':'', onclick:()=>{ state.mode='quotidien'; render(); }},['Contr\u00F4le quotidien']),
-    h('button',{class: state.mode==='hebdo'?'active':'', onclick:()=>{ state.mode='hebdo'; render(); }},['Bilan hebdomadaire']),
-  ]);
-  wrap.appendChild(toggle);
+  wrap.appendChild(h('button',{class:'btn btn-ghost btn-sm', onclick: async ()=>{
+    state.screen='loading'; render();
+    state.weekAgg = await computeWeeklyAggregate(state.currentUser.store);
+    state.weekAggStore = state.currentUser.store;
+    state.screen='week-report';
+    render();
+  }},['\u{1F4CA} Voir le bilan de la semaine']));
 
-  const doneCount = RAYONS.filter(r => state.currentEntries[r.id] && (state.mode==='hebdo' ? state.currentEntries[r.id].type==='hebdo' : true)).length;
+  const doneCount = RAYONS.filter(r => state.currentEntries[r.id]).length;
   const progress = h('div',{class:'progress-wrap'},[
-    h('div',{class:'label'},[h('span',{},[state.mode==='hebdo'?'Bilan hebdomadaire':'Rayons vus aujourd\u2019hui']), h('span',{},[`${doneCount}/${RAYONS.length}`])]),
+    h('div',{class:'label'},[h('span',{},['Rayons vus aujourd\u2019hui']), h('span',{},[`${doneCount}/${RAYONS.length}`])]),
     h('div',{class:'progress-bar'},[h('div',{class:'progress-fill', style:`width:${(doneCount/RAYONS.length)*100}%`})])
   ]);
   wrap.appendChild(progress);
@@ -505,7 +506,7 @@ SCREENS.home = () => {
     const card = h('div',{class:'rayon-card'+(sev?` status-${sev}`:''), onclick:()=>openRayon(r)},[
       h('div',{},[
         h('div',{class:'rname'},[r.label]),
-        h('div',{class:'rmeta'},[ rec ? `${recTotal(rec)} pt\u00B7 ${rec.type==='hebdo'?'hebdo':'quotidien'}` : 'Pas encore fait' ])
+        h('div',{class:'rmeta'},[ rec ? `${recTotal(rec)} pt` : 'Pas encore fait' ])
       ]),
       h('div',{class:'rright'},[
         h('span',{class:'chev'},['\u203A'])
@@ -517,6 +518,53 @@ SCREENS.home = () => {
 
   return wrap;
 };
+
+function renderWeekReport(agg, backScreen){
+  const wrap = h('div',{class:'screen'});
+  wrap.appendChild(h('button',{class:'back', onclick:()=>{ state.screen=backScreen; if(backScreen==='report') startReportPolling(); render(); }},['\u2190']));
+  wrap.appendChild(h('h1',{class:'hero'},['Bilan de la semaine']));
+  wrap.appendChild(h('p',{class:'sub'},['Calcul\u00E9 automatiquement \u00E0 partir des contr\u00F4les quotidiens des 7 derniers jours.']));
+
+  const table = h('div',{class:'report-table'});
+  RAYONS.forEach(r=>{
+    const a = agg[r.id];
+    const row = h('div',{class:'rt-row', style: a.checks===0 ? 'opacity:0.45;' : ''},[
+      h('div',{class:'rn'},[r.label, h('div',{class:'rt-meta'},[
+        a.checks===0 ? 'Jamais v\u00E9rifi\u00E9 cette semaine' : `V\u00E9rifi\u00E9 ${a.checks}/7 jours \u00B7 dernier: ${a.lastTotal} pt`
+      ])]),
+      h('div',{class:'rt-cell '+(a.checks===0?'zero':(a.totalIssues<=6?'':(a.totalIssues<=15?'warn':'danger'))), style:'grid-column:2/6;'},[a.checks===0?'\u2013':`${a.totalIssues} pts cumul\u00E9s`]),
+    ]);
+    row.style.gridTemplateColumns = '1fr 1fr';
+    table.appendChild(row);
+  });
+  wrap.appendChild(table);
+  return wrap;
+}
+
+SCREENS['week-report'] = () => renderWeekReport(state.weekAgg, state.currentUser.role==='direction' ? 'report' : 'home');
+
+async function computeWeeklyAggregate(store){
+  const now = new Date();
+  const days = [];
+  for(let i=6;i>=0;i--){ const d = new Date(now); d.setDate(now.getDate()-i); days.push(todayStr(d)); }
+  const results = await Promise.all(days.map(ds => loadEntriesFor(store, ds)));
+  const agg = {};
+  RAYONS.forEach(r=>{ agg[r.id] = {checks:0, totalIssues:0, lastTotal:0, lastDate:null}; });
+  days.forEach((ds, idx)=>{
+    const dayEntries = results[idx];
+    RAYONS.forEach(r=>{
+      const rec = dayEntries[r.id];
+      if(rec){
+        const total = recTotal(rec);
+        agg[r.id].checks += 1;
+        agg[r.id].totalIssues += total;
+        agg[r.id].lastTotal = total;
+        agg[r.id].lastDate = ds;
+      }
+    });
+  });
+  return agg;
+}
 
 function topbar(showLogout){
   const store = STORES.find(s=>s.id===state.currentUser.store);
@@ -533,9 +581,8 @@ function openRayon(r){
   const existing = state.currentEntries[r.id];
   state.activeRayon = r;
   state.draft = existing ? JSON.parse(JSON.stringify(existing)) : {
-    trous:0, cartons:0, a_monter:0, prix_manquants:0, plv_manquante:0, note:'', photoIds:[], type: state.mode,
+    trous:0, cartons:0, a_monter:0, prix_manquants:0, plv_manquante:0, note:'', photoIds:[],
   };
-  state.draft.type = state.mode;
   state.screen = 'rayon-entry';
   render();
 }
@@ -544,7 +591,7 @@ SCREENS['rayon-entry'] = () => {
   const wrap = h('div',{class:'screen'});
   wrap.appendChild(h('button',{class:'back', onclick:()=>{ state.screen='home'; render(); }},['\u2190']));
   wrap.appendChild(h('h1',{class:'hero'},[state.activeRayon.label]));
-  wrap.appendChild(h('p',{class:'sub'},[state.mode==='hebdo' ? 'Bilan hebdomadaire \u2014 sois exhaustif.' : 'Contr\u00F4le rapide.']));
+  wrap.appendChild(h('p',{class:'sub'},['Contr\u00F4le rapide \u2014 remplis ce que tu vois.']));
 
   FIELDS.forEach(f=>{
     const block = h('div',{class:'counter-block'},[
@@ -588,7 +635,7 @@ SCREENS['rayon-entry'] = () => {
       state.draft.ts = Date.now();
       state.currentEntries[state.activeRayon.id] = state.draft;
       await saveEntriesFor(state.currentUser.store, state.today, state.currentEntries);
-      if(state.mode==='hebdo'){ state.weekStatus[state.today] = true; }
+      state.weekStatus[state.today] = true;
       showToast('Rayon validé');
       state.screen='home';
       render();
@@ -615,6 +662,15 @@ SCREENS.report = () => {
 
   const tabs = h('div',{class:'tabs'}, STORES.map(s=>h('button',{class:state.reportStore===s.id?'active':'', onclick: async ()=>{ state.reportStore=s.id; state.reportEntries = await loadEntriesFor(state.reportStore, state.reportDate); render(); }},[s.label])));
   wrap.appendChild(tabs);
+
+  wrap.appendChild(h('button',{class:'btn btn-ghost btn-sm', onclick: async ()=>{
+    stopReportPolling();
+    state.screen='loading'; render();
+    state.weekAgg = await computeWeeklyAggregate(state.reportStore);
+    state.weekAggStore = state.reportStore;
+    state.screen='week-report';
+    render();
+  }},['\u{1F4CA} Bilan de la semaine \u2014 '+(STORES.find(s=>s.id===state.reportStore)?.label||'')]));
 
   const dateField = h('div',{class:'field'},[
     h('label',{},['Date']),
