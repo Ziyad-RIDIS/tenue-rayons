@@ -566,6 +566,123 @@ async function computeWeeklyAggregate(store){
   return agg;
 }
 
+// ---------- BILAN MENSUEL ----------
+function monthWeekChunks(year, monthIndex){
+  // monthIndex: 0-11. Découpe le mois en tranches de 7 jours (Semaine 1 = jours 1-7, etc.)
+  const daysInMonth = new Date(year, monthIndex+1, 0).getDate();
+  const chunks = [];
+  for(let start=1; start<=daysInMonth; start+=7){
+    const end = Math.min(start+6, daysInMonth);
+    const dates = [];
+    for(let d=start; d<=end; d++){
+      dates.push(todayStr(new Date(year, monthIndex, d)));
+    }
+    chunks.push({label:`S${chunks.length+1}`, dates});
+  }
+  return chunks;
+}
+
+async function computeMonthlyAggregate(store, year, monthIndex){
+  const chunks = monthWeekChunks(year, monthIndex);
+  const allDates = chunks.flatMap(c => c.dates);
+  const todayIso = todayStr();
+  const relevantDates = allDates.filter(ds => ds <= todayIso);
+  const results = await Promise.all(relevantDates.map(ds => loadEntriesFor(store, ds)));
+  const byDate = {};
+  relevantDates.forEach((ds, idx) => { byDate[ds] = results[idx]; });
+
+  const agg = {};
+  RAYONS.forEach(r=>{ agg[r.id] = { weeks: chunks.map(()=>({total:0, checks:0})) }; });
+
+  chunks.forEach((chunk, wIdx) => {
+    chunk.dates.forEach(ds => {
+      const dayEntries = byDate[ds];
+      if(!dayEntries) return;
+      RAYONS.forEach(r=>{
+        const rec = dayEntries[r.id];
+        if(rec){
+          agg[r.id].weeks[wIdx].total += recTotal(rec);
+          agg[r.id].weeks[wIdx].checks += 1;
+        }
+      });
+    });
+  });
+  return { chunks, agg };
+}
+
+function trendArrow(weeks){
+  const withData = weeks.map((w,i)=>({...w, i})).filter(w=>w.checks>0);
+  if(withData.length<2) return h('span',{style:'color:var(--muted);'},['\u2013']);
+  const first = withData[0].total, last = withData[withData.length-1].total;
+  if(last > first) return h('span',{style:'color:var(--danger);'},['\u2191']);
+  if(last < first) return h('span',{style:'color:var(--ok);'},['\u2193']);
+  return h('span',{style:'color:var(--muted);'},['\u2192']);
+}
+
+function downloadCsv(filename, rows){
+  const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(';')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+SCREENS['month-report'] = () => {
+  const wrap = h('div',{class:'screen'});
+  wrap.appendChild(h('button',{class:'back', onclick:()=>{ state.screen='report'; startReportPolling(); render(); }},['\u2190']));
+  wrap.appendChild(h('h1',{class:'hero'},['Bilan mensuel']));
+  wrap.appendChild(h('p',{class:'sub'},['Total de points par semaine, par rayon \u2014 ', STORES.find(s=>s.id===state.monthStore)?.label||'']));
+
+  const monthField = h('div',{class:'field'},[
+    h('label',{},['Mois']),
+    h('input',{type:'month', value:state.monthValue, onchange: async (e)=>{
+      state.monthValue = e.target.value;
+      state.screen='loading'; render();
+      const [y,m] = state.monthValue.split('-').map(Number);
+      const res = await computeMonthlyAggregate(state.monthStore, y, m-1);
+      state.monthData = res;
+      state.screen='month-report';
+      render();
+    }})
+  ]);
+  wrap.appendChild(monthField);
+
+  const { chunks, agg } = state.monthData;
+
+  const head = h('div',{class:'rt-head', style:`grid-template-columns:1.3fr repeat(${chunks.length},.6fr) .5fr;`},[
+    h('div',{},['Rayon']),
+    ...chunks.map(c=>h('div',{class:'rt-cell'},[c.label])),
+    h('div',{class:'rt-cell'},['Tend.'])
+  ]);
+  const table = h('div',{class:'report-table'},[head]);
+
+  RAYONS.forEach(r=>{
+    const weeks = agg[r.id].weeks;
+    const anyData = weeks.some(w=>w.checks>0);
+    const row = h('div',{class:'rt-row', style:`grid-template-columns:1.3fr repeat(${chunks.length},.6fr) .5fr;${anyData?'':'opacity:0.4;'}`},[
+      h('div',{class:'rn'},[r.label]),
+      ...weeks.map(w=> h('div',{class:'rt-cell '+(w.checks===0?'zero':(w.total<=3?'':(w.total<=8?'warn':'danger')))},[w.checks===0?'\u2013':String(w.total)])),
+      trendArrow(weeks),
+    ]);
+    table.appendChild(row);
+  });
+  wrap.appendChild(table);
+
+  wrap.appendChild(h('button',{class:'btn btn-ghost btn-sm', onclick:()=>{
+    const rows = [['Rayon', ...chunks.map(c=>c.label), 'Total mois']];
+    RAYONS.forEach(r=>{
+      const weeks = agg[r.id].weeks;
+      const total = weeks.reduce((s,w)=>s+w.total,0);
+      rows.push([r.label, ...weeks.map(w=>w.checks===0?'':w.total), total]);
+    });
+    downloadCsv(`bilan-${state.monthStore}-${state.monthValue}.csv`, rows);
+  }},['\u2B07 Exporter en CSV']));
+
+  return wrap;
+};
+
 function topbar(showLogout){
   const store = STORES.find(s=>s.id===state.currentUser.store);
   return h('div',{class:'topbar'},[
@@ -671,6 +788,18 @@ SCREENS.report = () => {
     state.screen='week-report';
     render();
   }},['\u{1F4CA} Bilan de la semaine \u2014 '+(STORES.find(s=>s.id===state.reportStore)?.label||'')]));
+
+  wrap.appendChild(h('button',{class:'btn btn-ghost btn-sm', onclick: async ()=>{
+    stopReportPolling();
+    state.screen='loading'; render();
+    state.monthStore = state.reportStore;
+    const now = new Date();
+    state.monthValue = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const res = await computeMonthlyAggregate(state.monthStore, now.getFullYear(), now.getMonth());
+    state.monthData = res;
+    state.screen='month-report';
+    render();
+  }},['\u{1F4C5} Bilan mensuel \u2014 '+(STORES.find(s=>s.id===state.reportStore)?.label||'')]));
 
   const dateField = h('div',{class:'field'},[
     h('label',{},['Date']),
