@@ -747,7 +747,9 @@ SCREENS['rayon-entry'] = () => {
   ]));
 
   const footer = h('div',{class:'footer-actions'},[
-    h('button',{class:'btn btn-primary', onclick: async ()=>{
+    h('button',{class:'btn btn-primary', onclick: async (e)=>{
+      e.target.disabled = true;
+      e.target.textContent = 'Enregistrement...';
       state.draft.manager = state.currentUser.name;
       state.draft.ts = Date.now();
       state.currentEntries[state.activeRayon.id] = state.draft;
@@ -777,7 +779,7 @@ SCREENS.report = () => {
   ]));
   wrap.appendChild(h('p',{class:'sub', style:'margin-top:-8px;'},['Mise à jour automatique toutes les 15s']));
 
-  const tabs = h('div',{class:'tabs'}, STORES.map(s=>h('button',{class:state.reportStore===s.id?'active':'', onclick: async ()=>{ state.reportStore=s.id; state.reportEntries = await loadEntriesFor(state.reportStore, state.reportDate); render(); }},[s.label])));
+  const tabs = h('div',{class:'tabs'}, STORES.map(s=>h('button',{class:state.reportStore===s.id?'active':'', onclick: async ()=>{ state.reportStore=s.id; showToast('Chargement...'); state.reportEntries = await loadEntriesFor(state.reportStore, state.reportDate); render(); }},[s.label])));
   wrap.appendChild(tabs);
 
   wrap.appendChild(h('button',{class:'btn btn-ghost btn-sm', onclick: async ()=>{
@@ -803,7 +805,7 @@ SCREENS.report = () => {
 
   const dateField = h('div',{class:'field'},[
     h('label',{},['Date']),
-    h('input',{type:'date', value:state.reportDate, onchange: async (e)=>{ state.reportDate = e.target.value; state.reportEntries = await loadEntriesFor(state.reportStore, state.reportDate); render(); }})
+    h('input',{type:'date', value:state.reportDate, onchange: async (e)=>{ state.reportDate = e.target.value; showToast('Chargement...'); state.reportEntries = await loadEntriesFor(state.reportStore, state.reportDate); render(); }})
   ]);
   wrap.appendChild(dateField);
 
